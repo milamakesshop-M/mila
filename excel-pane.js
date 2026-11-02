@@ -16,7 +16,14 @@
     if (!el) { el = document.createElement('div'); el.id = 'mila-status'; el.className = 'msg mila typing'; el.appendChild(document.createElement('div')); el.children[0].className = 'bubble'; chat.appendChild(el); }
     el.children[0].textContent = txt; chat.scrollTop = chat.scrollHeight;
   }
-  function step(name, txt) { diag.step = name; diag.since = Date.now(); if (txt) statusLine(txt); }
+  function step(name, txt) { diag.step = name; diag.sub = ''; diag.part = ''; diag.since = Date.now(); if (txt) statusLine(txt); }
+  var times = [];
+  async function timedSync(ctx, label) {        // every request to Excel, timed: if one is slow, the panel says which
+    diag.sub = label; var t = Date.now();
+    await ctx.sync();
+    times.push(label + ' ' + ((Date.now() - t) / 1000).toFixed(1) + ' s');
+    diag.sub = '';
+  }
   function showErr(where, e) {
     var msg = (e && (e.message || e.description)) || String(e);
     if (e && e.debugInfo && e.debugInfo.errorLocation) msg += ' [' + e.debugInfo.errorLocation + ']';
@@ -32,11 +39,11 @@
   window.addEventListener('unhandledrejection', function (ev) { showErr(diag.step, ev.reason); });
   setInterval(function () {             // a step that takes long says so, instead of looking frozen
     var s = Math.round((Date.now() - diag.since) / 1000);
-    if (diag.step !== 'ready' && s >= 15 && document.getElementById('mila-status')) statusLine('Still working on: ' + diag.step + ' (' + s + ' s)…');
+    if (diag.step !== 'ready' && s >= 15 && document.getElementById('mila-status')) statusLine('Still working on: ' + diag.step + (diag.sub ? ', ' + diag.sub : '') + (diag.part ? ', part ' + diag.part : '') + ' (' + s + ' s)…');
   }, 5000);
   function withTimeout(p, ms, what) {
     return new Promise(function (ok, fail) {
-      var t = setTimeout(function () { fail(new Error('no answer from Excel after ' + Math.round(ms / 1000) + ' s (' + what + ')')); }, ms);
+      var t = setTimeout(function () { fail(new Error('no answer from Excel after ' + Math.round(ms / 1000) + ' s (' + what + (diag.sub ? ': ' + diag.sub : '') + (diag.part ? ', part ' + diag.part : '') + ')')); }, ms);
       p.then(function (v) { clearTimeout(t); ok(v); }, function (e) { clearTimeout(t); fail(e); });
     });
   }
@@ -54,7 +61,10 @@
   }
   var io = {
     get props() { return props; },
-    load: function (engineOnly) { diag.step = engineOnly ? 'reading the new numbers' : 'reading your planner'; diag.since = Date.now(); return withTimeout(MilaBridge.loadBook(Excel, M, engineOnly), 60000, diag.step); },
+    load: function (engineOnly) {
+      diag.step = engineOnly ? 'reading the new numbers' : 'reading your planner'; diag.since = Date.now();
+      return withTimeout(MilaBridge.loadBook(Excel, M, engineOnly, function (i, n) { diag.part = i + '/' + n; }), 90000, diag.step);
+    },
     apply: function (writes) { quietUntil = Date.now() + 2500; diag.step = 'writing in your planner'; diag.since = Date.now(); return withTimeout(MilaBridge.applyWrites(Excel, writes), 60000, diag.step); },
     saveProps: saveProps
   };
@@ -104,18 +114,23 @@
     return Excel.run(async function (ctx) {
       var book = ctx.workbook, ask = book.worksheets.getItem('Ask Mila');
       var q1 = ask.getRange('Q1'); q1.load('values');
-      await ctx.sync();
+      times = []; var t0all = Date.now();
+      var calm = function () {      // while Mila draws her boxes, Excel needn't recalculate the planner (nothing she writes here is a number)
+        try { if (Office.context.requirements.isSetSupported('ExcelApi', '1.6')) book.application.suspendApiCalculationUntilNextSync(); } catch (e) { }
+      };
+      await timedSync(ctx, 'checking');
       var done = false;
       try { done = Office.context.document.settings.get(SETUP_KEY) === SETUP_VER; } catch (e) { }
       if (!force && done && String(q1.values[0][0]) === 'pro') return false;
       var pal = M.palette, bar = M.bar || {}, names = Object.keys(bar).filter(function (n) { return bar[n].box; });
       var touched = names.concat(['Ask Mila']).filter(function (n, i, a) { return a.indexOf(n) === i; });
       var prot = touched.map(function (n) { var ws = book.worksheets.getItemOrNullObject(n); ws.load('name'); return { n: n, ws: ws }; });   // isNullObject is known after the sync
-      await ctx.sync();
+      await timedSync(ctx, 'finding the pages');
       prot = prot.filter(function (x) { return !x.ws.isNullObject; });
       prot.forEach(function (x) { x.p = x.ws.protection; x.p.load('protected'); });
-      await ctx.sync();
+      await timedSync(ctx, 'reading the page locks');
       prot.forEach(function (x) { x.was = !!x.p.protected; if (x.was) x.p.unprotect(); });
+      await timedSync(ctx, 'unlocking the pages');
       var dv = Office.context.requirements.isSetSupported('ExcelApi', '1.8');
       prot.forEach(function (x) {
         var n = x.n, b = bar[n];
@@ -130,10 +145,18 @@
         rg.format.horizontalAlignment = 'Left';
         rg.format.protection.locked = false;
         if (b.label) x.ws.getRange(b.label).values = [['💬 Talk to Mila · box →']];
+      });
+      calm();
+      await timedSync(ctx, 'making the blue boxes');
+      prot.forEach(function (x) {
+        var n = x.n, b = bar[n];
+        if (!b || !b.box) return;
         ask.getRange(b.reply).values = [[n === 'Today'
           ? '✏️ Type in the blue box above and press Enter: “spent 12 on lunch”, “paid rent”, or a question. (Mila for Excel, on a computer.)'
           : '✏️ Type in the blue box next to me and press Enter: “spent 12 on lunch”, “add bill Water 40 on the 5th”, or any question.']];
       });
+      calm();
+      await timedSync(ctx, 'writing my notes');
       // tap boxes: pick ✓ next to a line
       var t0 = M.tap0, nt = (M.taps || []).length;
       if (nt) {
@@ -145,9 +168,12 @@
         boxes.format.font.color = '#' + pal.rose_deep;
         boxes.format.font.bold = true;
         boxes.format.fill.color = '#' + pal.input;
+        calm();
+        await timedSync(ctx, 'making the tap boxes');
       }
       q1.values = [['pro']];
-      await ctx.sync();
+      calm();
+      await timedSync(ctx, 'switching on');
       // nice extras (newer Excel): a ✓ list in the tap boxes, and a hint when you click a blue box. If they fail, typing still works.
       var picks = false;
       if (dv) {
@@ -158,7 +184,7 @@
             bx.dataValidation.rule = { list: { inCellDropDown: true, source: '✓' } };
             bx.dataValidation.prompt = { showPrompt: true, title: 'Mila', message: 'Pick ✓ and I answer, or do it.' };
           }
-          await ctx.sync(); picks = true;
+          await timedSync(ctx, 'tick lists'); picks = true;
         } catch (e) { console.log('Mila: no ✓ lists', e); }
         try {
           prot.forEach(function (x) {
@@ -167,12 +193,13 @@
             rg.dataValidation.clear();
             rg.dataValidation.prompt = { showPrompt: true, title: 'Talk to Mila', message: 'Type here, then press Enter: "spent 12 on lunch", "paid rent", or any question.' };
           });
-          await ctx.sync();
+          await timedSync(ctx, 'box hints');
         } catch (e) { console.log('Mila: no box hints', e); }
       }
       if (nt) ask.getRange('C' + (t0 - 1)).values = [[picks ? '👈 P I C K   ✓   I N   A   B O X :   I   A N S W E R ,   O R   D O   I T' : '👈 T Y P E   x   I N   A   B O X :   I   A N S W E R ,   O R   D O   I T']];
       prot.forEach(function (x) { if (x.was) x.p.protect({ allowFormatColumns: true, allowFormatRows: true, allowAutoFilter: x.n === 'Transactions', allowSort: x.n === 'Transactions' }); });
-      await ctx.sync();
+      await timedSync(ctx, 'locking the pages');
+      diag.setupTotal = (Date.now() - t0all) / 1000; diag.setupTimes = times.slice();
       return true;
     }).then(function (changed) {
       try { Office.context.document.settings.set(SETUP_KEY, SETUP_VER); } catch (e) { }
@@ -304,7 +331,9 @@
         // the planner's boxes are made first (once), then Mila says hello: both wait in the same line, in order
         queue = queue.then(function () {
           step('getting your planner ready', 'Getting your planner ready (only the first time)…');
-          return withTimeout(setupOnce(false), 45000, 'getting your planner ready').catch(function (e) { showErr('getting your planner ready', e); });
+          return withTimeout(setupOnce(false), 90000, 'getting your planner ready').then(function () {
+            if (diag.setupTotal > 8) pane.say('ℹ️ Getting the planner ready took ' + Math.round(diag.setupTotal) + ' s (' + diag.setupTimes.join(', ') + ').');
+          }, function (e) { showErr('getting your planner ready', e); });
         }).then(function () { step('reading your planner', 'Reading your planner…'); });
         window.milaStartPanel();
         watchBoxes();

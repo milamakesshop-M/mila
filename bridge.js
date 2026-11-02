@@ -150,14 +150,14 @@ var MilaBridge = (function () {
   }
 
   // ---------------------------------------------------------------- what to load (everything Mila reads)
-  function engineRanges(M) {
+  function engineRanges(M, withImp) {
     var out = ['A1:B' + (M.excel.scalarRows)], E = M.eng;
     var ansCols = Object.keys(E.ansCol).map(function (k) { return colNum(E.ansCol[k]); });
     out.push(colLet(Math.min.apply(null, ansCols)) + E.ans0 + ':' + colLet(Math.max.apply(null, ansCols)) + (E.ans0 + E.intents.length));
     var bc = Object.keys(E.bilCol).map(function (k) { return colNum(E.bilCol[k]); });
     out.push(colLet(Math.min.apply(null, bc)) + E.bil0 + ':' + colLet(Math.max.apply(null, bc)) + (E.bil0 + M.setup.nbill - 1));
     out.push(E.moptCol + E.mopt0 + ':' + E.moptCol + (E.mopt0 + E.nmopt - 1));
-    if (M.imp) {
+    if (M.imp && withImp !== false) {         // the Bank import part of the Engine: only when something was pasted there
       var ic = Object.keys(M.imp.eng).map(function (k) { return colNum(M.imp.eng[k]); });
       out.push('A' + M.imp.eng0 + ':' + colLet(Math.max.apply(null, ic)) + (M.imp.eng0 + M.imp.n - 1));
     }
@@ -189,32 +189,37 @@ var MilaBridge = (function () {
     for (var r = rc.r0; r <= rc.r1; r += step) out.push(colLet(rc.c0) + r + ':' + colLet(rc.c1) + Math.min(rc.r1, r + step - 1));
     return out;
   }
-  async function loadBook(Excel, M, engineOnly) {
+  async function loadBook(Excel, M, engineOnly, onPart) {
     return Excel.run(async function (ctx) {
       var wsc = ctx.workbook.worksheets; wsc.load('items/name');
       var act = ctx.workbook.worksheets.getActiveWorksheet(); act.load('name');
+      var impRow = M.eng.rows.impLines, impCell = null;
+      if (impRow) { impCell = ctx.workbook.worksheets.getItem('Engine').getRange('B' + impRow); impCell.load('values'); }
       await ctx.sync();
+      var impN = impCell ? (Number(impCell.values[0][0]) || 0) : 1;
       var data = wsc.items.map(function (ws) { return { name: ws.name }; });       // every page, in order (some stay empty)
-      var impRow = M.eng.rows.impLines, impN = 1;
-      if (impRow && !engineOnly) { var eng = ctx.workbook.worksheets.getItem('Engine').getRange('B' + impRow); eng.load('values'); await ctx.sync(); impN = Number(eng.values[0][0]) || 0; }
       var targets = [], used = [];
       wsc.items.forEach(function (ws) {
         if (ws.name === 'Engine') {
           // Mila reads the Engine's numbers; only its first block (her settings and answers) needs the formulas too
-          engineRanges(M).forEach(function (a, i) { targets.push({ name: ws.name, ws: ws, a: a, f: i === 0 }); });
+          engineRanges(M, impN > 0).forEach(function (a, i) { targets.push({ name: ws.name, ws: ws, a: a, f: i === 0 }); });
         } else if (!engineOnly && !(ws.name === 'Bank import' && !impN)) {
           var u = ws.getUsedRangeOrNullObject(true); u.load('address'); used.push({ name: ws.name, ws: ws, u: u });
         }
       });
-      await ctx.sync();
+      if (used.length) await ctx.sync();
       used.forEach(function (x) { if (!x.u.isNullObject) targets.push({ name: x.name, ws: x.ws, a: x.u.address.split('!').pop(), f: true }); });
-      for (var i = 0; i < targets.length; i++) {
-        var t = targets[i], ps = pieces(t.a, 12000);
-        for (var j = 0; j < ps.length; j++) {
-          var r = t.ws.getRange(ps[j]); r.load(t.f ? ['values', 'formulas', 'numberFormat'] : ['values', 'numberFormat']);
-          await ctx.sync();
-          data.push({ name: t.name, address: ps[j], values: r.values, formulas: t.f ? r.formulas : null, numberFormat: r.numberFormat });
-        }
+      // cut big pages into pieces, then send several pieces per request (Excel on the web answers about 5 MB at most)
+      var parts = [];
+      targets.forEach(function (t) { pieces(t.a, 12000).forEach(function (p) { var rc = rangeRC(p); parts.push({ t: t, a: p, n: (rc.r1 - rc.r0 + 1) * (rc.c1 - rc.c0 + 1) }); }); });
+      var batches = [], cur = [], size = 0;
+      parts.forEach(function (p) { if (cur.length && size + p.n > 30000) { batches.push(cur); cur = []; size = 0; } cur.push(p); size += p.n; });
+      if (cur.length) batches.push(cur);
+      for (var b = 0; b < batches.length; b++) {
+        if (onPart) onPart(b + 1, batches.length);
+        batches[b].forEach(function (p) { p.r = p.t.ws.getRange(p.a); p.r.load(p.t.f ? ['values', 'formulas', 'numberFormat'] : ['values', 'numberFormat']); });
+        await ctx.sync();
+        batches[b].forEach(function (p) { data.push({ name: p.t.name, address: p.a, values: p.r.values, formulas: p.t.f ? p.r.formulas : null, numberFormat: p.r.numberFormat }); });
       }
       var book = toBook(data);
       book.active = act.name;
