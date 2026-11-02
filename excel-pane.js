@@ -6,12 +6,46 @@
   var M = X.cfg;
   var props = { user: {}, doc: {} };
   var queue = Promise.resolve(), busy = 0, quietUntil = 0;
+  // ---------------------------------------------------------------- what Mila is doing right now (shown in the panel)
+  var diag = { step: 'starting', since: Date.now() };
+  function chatEl() { return document.getElementById('chat'); }
+  function statusLine(txt) {
+    var chat = chatEl(); if (!chat) return;
+    var el = document.getElementById('mila-status');
+    if (!txt) { if (el && el.parentNode) el.parentNode.removeChild(el); return; }
+    if (!el) { el = document.createElement('div'); el.id = 'mila-status'; el.className = 'msg mila typing'; el.appendChild(document.createElement('div')); el.children[0].className = 'bubble'; chat.appendChild(el); }
+    el.children[0].textContent = txt; chat.scrollTop = chat.scrollHeight;
+  }
+  function step(name, txt) { diag.step = name; diag.since = Date.now(); if (txt) statusLine(txt); }
+  function showErr(where, e) {
+    var msg = (e && (e.message || e.description)) || String(e);
+    if (e && e.debugInfo && e.debugInfo.errorLocation) msg += ' [' + e.debugInfo.errorLocation + ']';
+    console.error('Mila', where, e);
+    var chat = chatEl(); if (!chat) return;
+    var m = document.createElement('div'); m.className = 'msg mila';
+    var b = document.createElement('div'); b.className = 'bubble';
+    b.style.borderColor = '#E9A0A0';
+    b.textContent = '⚠️ Something went wrong while ' + where + ': ' + msg + ' (Please send a screenshot of this to the shop.)';
+    m.appendChild(b); chat.appendChild(m); chat.scrollTop = chat.scrollHeight;
+  }
+  window.addEventListener('error', function (ev) { showErr(diag.step, (ev.message || 'error') + ' @ ' + String(ev.filename || '').split('/').pop() + ':' + ev.lineno); });
+  window.addEventListener('unhandledrejection', function (ev) { showErr(diag.step, ev.reason); });
+  setInterval(function () {             // a step that takes long says so, instead of looking frozen
+    var s = Math.round((Date.now() - diag.since) / 1000);
+    if (diag.step !== 'ready' && s >= 15 && document.getElementById('mila-status')) statusLine('Still working on: ' + diag.step + ' (' + s + ' s)…');
+  }, 5000);
+  function withTimeout(p, ms, what) {
+    return new Promise(function (ok, fail) {
+      var t = setTimeout(function () { fail(new Error('no answer from Excel after ' + Math.round(ms / 1000) + ' s (' + what + ')')); }, ms);
+      p.then(function (v) { clearTimeout(t); ok(v); }, function (e) { clearTimeout(t); fail(e); });
+    });
+  }
   var NEED = ['Ask Mila', 'Today', 'Setup', 'Engine'];          // a workbook without these pages is not the planner
   var SETUP_KEY = 'mila_excel_setup', SETUP_VER = '2';
 
   function readUserProps() { try { return JSON.parse(localStorage.getItem('mila_user_props') || '{}'); } catch (e) { return {}; } }
   function readDocProps() { try { return JSON.parse(Office.context.document.settings.get('mila_props') || '{}'); } catch (e) { return {}; } }
-  function saveSettings() { return new Promise(function (ok) { try { Office.context.document.settings.saveAsync(function () { ok(); }); } catch (e) { ok(); } }); }
+  function saveSettings() { return new Promise(function (ok) { var t = setTimeout(ok, 4000); try { Office.context.document.settings.saveAsync(function () { clearTimeout(t); ok(); }); } catch (e) { clearTimeout(t); ok(); } }); }
   function saveProps(pw, all) {
     props = { user: all.user, doc: all.doc };
     try { localStorage.setItem('mila_user_props', JSON.stringify(props.user)); } catch (e) { }
@@ -20,14 +54,20 @@
   }
   var io = {
     get props() { return props; },
-    load: function (engineOnly) { return MilaBridge.loadBook(Excel, M, engineOnly); },
-    apply: function (writes) { quietUntil = Date.now() + 2500; return MilaBridge.applyWrites(Excel, writes); },
+    load: function (engineOnly) { diag.step = engineOnly ? 'reading the new numbers' : 'reading your planner'; diag.since = Date.now(); return withTimeout(MilaBridge.loadBook(Excel, M, engineOnly), 60000, diag.step); },
+    apply: function (writes) { quietUntil = Date.now() + 2500; diag.step = 'writing in your planner'; diag.since = Date.now(); return withTimeout(MilaBridge.applyWrites(Excel, writes), 60000, diag.step); },
     saveProps: saveProps
   };
   // one message at a time, in order
   function run(fn, args) {
     var job = queue.then(function () { busy++; return MilaBridge.call(io, CODE, fn, args); })
-      .then(function (r) { busy--; quietUntil = Date.now() + 1500; return r.result; }, function (e) { busy--; throw e; });
+      .then(function (r) { busy--; quietUntil = Date.now() + 1500; diag.step = 'ready'; statusLine(null); return r.result; },
+            function (e) {
+              busy--; diag.step = 'ready'; statusLine(null);
+              if (e && e.debugInfo && e.debugInfo.errorLocation && e.message) e.message += ' [' + e.debugInfo.errorLocation + ']';
+              if (fn !== 'milaChat' && fn !== 'milaHello') showErr('answering', e);     // the chat shows its own message for these
+              throw e;
+            });
     queue = job.catch(function () { });
     return job;
   }
@@ -70,7 +110,7 @@
       if (!force && done && String(q1.values[0][0]) === 'pro') return false;
       var pal = M.palette, bar = M.bar || {}, names = Object.keys(bar).filter(function (n) { return bar[n].box; });
       var touched = names.concat(['Ask Mila']).filter(function (n, i, a) { return a.indexOf(n) === i; });
-      var prot = touched.map(function (n) { var ws = book.worksheets.getItemOrNullObject(n); ws.load('isNullObject'); return { n: n, ws: ws }; });
+      var prot = touched.map(function (n) { var ws = book.worksheets.getItemOrNullObject(n); ws.load('name'); return { n: n, ws: ws }; });   // isNullObject is known after the sync
       await ctx.sync();
       prot = prot.filter(function (x) { return !x.ws.isNullObject; });
       prot.forEach(function (x) { x.p = x.ws.protection; x.p.load('protected'); });
@@ -250,22 +290,29 @@
       '<p style="color:#' + p.muted + ';font-size:12px">Nothing in this workbook was read or changed.</p></div>';
   }
 
+  step('connecting to Excel', 'Connecting to Excel…');
   Office.onReady(function (info) {
     if (info.host !== Office.HostType.Excel) { document.body.innerHTML = '<p style="padding:16px">Mila works in Excel.</p>'; return; }
-    pageNames().then(function (names) {
+    step('checking your workbook', 'Checking your workbook…');
+    withTimeout(pageNames(), 30000, 'listing the pages').then(function (names) {
       if (NEED.some(function (n) { return names.indexOf(n) < 0; })) { notPlanner(); return; }
       props = { user: readUserProps(), doc: readDocProps() };
       window.google = { script: {} };
       Object.defineProperty(window.google.script, 'run', { get: function () { return runner(null, null); } });
-      return setupOnce(false).catch(function (e) { console.log('Mila: setup skipped', e); }).then(theme).then(function (t) {
+      return withTimeout(theme(), 15000, 'reading the theme').catch(function () { return 'light'; }).then(function (t) {
         window.MILA_PANEL_DATA = { palette: X.palettes[t], avatar: X.avatars[t], theme: t, version: M.version, app: false };
+        // the planner's boxes are made first (once), then Mila says hello: both wait in the same line, in order
+        queue = queue.then(function () {
+          step('getting your planner ready', 'Getting your planner ready (only the first time)…');
+          return withTimeout(setupOnce(false), 45000, 'getting your planner ready').catch(function (e) { showErr('getting your planner ready', e); });
+        }).then(function () { step('reading your planner', 'Reading your planner…'); });
         window.milaStartPanel();
         watchBoxes();
         startWithPlanner();
         onShown();
         setInterval(dailyCheck, 10 * 60000);
       });
-    }).catch(function (e) { console.error(e); notPlanner(); });
+    }).catch(function (e) { showErr(diag.step, e); });
   });
   window.MilaExcelPane = { setupOnce: setupOnce, watched: watched, dailyCheck: dailyCheck, setDay: function (d) { lastDay = d; }, isBackground: function () { return background; } };
 })();

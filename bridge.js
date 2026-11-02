@@ -183,27 +183,40 @@ var MilaBridge = (function () {
     });
     return book;
   }
+  // Excel on the web answers at most about 5 MB per request, so the planner is read in pieces (one page, or part of a page, at a time)
+  function pieces(addr, maxCells) {
+    var rc = rangeRC(addr), cols = rc.c1 - rc.c0 + 1, step = Math.max(1, Math.floor(maxCells / cols)), out = [];
+    for (var r = rc.r0; r <= rc.r1; r += step) out.push(colLet(rc.c0) + r + ':' + colLet(rc.c1) + Math.min(rc.r1, r + step - 1));
+    return out;
+  }
   async function loadBook(Excel, M, engineOnly) {
     return Excel.run(async function (ctx) {
       var wsc = ctx.workbook.worksheets; wsc.load('items/name');
       var act = ctx.workbook.worksheets.getActiveWorksheet(); act.load('name');
       await ctx.sync();
-      var got = [];
-      var impRow = M.eng.rows.impLines, eng = null, impN = 1;
-      if (impRow && !engineOnly) { eng = ctx.workbook.worksheets.getItem('Engine').getRange('B' + impRow); eng.load('values'); await ctx.sync(); impN = Number(eng.values[0][0]) || 0; }
+      var data = wsc.items.map(function (ws) { return { name: ws.name }; });       // every page, in order (some stay empty)
+      var impRow = M.eng.rows.impLines, impN = 1;
+      if (impRow && !engineOnly) { var eng = ctx.workbook.worksheets.getItem('Engine').getRange('B' + impRow); eng.load('values'); await ctx.sync(); impN = Number(eng.values[0][0]) || 0; }
+      var targets = [], used = [];
       wsc.items.forEach(function (ws) {
-        if (ws.name === 'Bank import' && !impN && !engineOnly) { got.push({ name: ws.name, r: null }); return; }
         if (ws.name === 'Engine') {
-          engineRanges(M).forEach(function (a) { var r = ws.getRange(a); r.load(['address', 'values', 'formulas', 'numberFormat']); got.push({ name: ws.name, r: r }); });
-        } else if (!engineOnly) {
-          var u = ws.getUsedRangeOrNullObject(true); u.load(['address', 'values', 'formulas', 'numberFormat']); got.push({ name: ws.name, r: u });
-        } else got.push({ name: ws.name, r: null });
+          // Mila reads the Engine's numbers; only its first block (her settings and answers) needs the formulas too
+          engineRanges(M).forEach(function (a, i) { targets.push({ name: ws.name, ws: ws, a: a, f: i === 0 }); });
+        } else if (!engineOnly && !(ws.name === 'Bank import' && !impN)) {
+          var u = ws.getUsedRangeOrNullObject(true); u.load('address'); used.push({ name: ws.name, ws: ws, u: u });
+        }
       });
       await ctx.sync();
-      var book = toBook(got.map(function (g) {
-        if (!g.r || g.r.isNullObject) return { name: g.name };
-        return { name: g.name, address: g.r.address, values: g.r.values, formulas: g.r.formulas, numberFormat: g.r.numberFormat };
-      }));
+      used.forEach(function (x) { if (!x.u.isNullObject) targets.push({ name: x.name, ws: x.ws, a: x.u.address.split('!').pop(), f: true }); });
+      for (var i = 0; i < targets.length; i++) {
+        var t = targets[i], ps = pieces(t.a, 12000);
+        for (var j = 0; j < ps.length; j++) {
+          var r = t.ws.getRange(ps[j]); r.load(t.f ? ['values', 'formulas', 'numberFormat'] : ['values', 'numberFormat']);
+          await ctx.sync();
+          data.push({ name: t.name, address: ps[j], values: r.values, formulas: t.f ? r.formulas : null, numberFormat: r.numberFormat });
+        }
+      }
+      var book = toBook(data);
       book.active = act.name;
       return book;
     });
@@ -217,8 +230,10 @@ var MilaBridge = (function () {
       var prot = Object.keys(touched).map(function (n) { var p = book.worksheets.getItem(n).protection; p.load('protected'); return { n: n, p: p }; });
       await ctx.sync();
       prot.forEach(function (x) { x.was = !!x.p.protected; if (x.was) x.p.unprotect(); });
-      writes.forEach(function (w) {
-        if (w.op === 'activate') { act = w.s; return; }
+      for (var k = 0; k < writes.length; k++) {
+        var w = writes[k];
+        if (k && k % 250 === 0) await ctx.sync();
+        if (w.op === 'activate') { act = w.s; continue; }
         var r = book.worksheets.getItem(w.s).getRange(w.a);
         if (w.op === 'clear') r.clear('Contents');
         else if (w.op === 'formula') r.formulas = [[w.f]];
@@ -230,7 +245,7 @@ var MilaBridge = (function () {
           var data = w.v.map(function (row) { return row.map(toCell); });
           if (hasF) r.formulas = data; else r.values = data;
         }
-      });
+      }
       prot.forEach(function (x) { if (x.was) x.p.protect({ allowFormatColumns: true, allowFormatRows: true, allowAutoFilter: x.n === 'Transactions', allowSort: x.n === 'Transactions' }); });
       if (act) book.worksheets.getItem(act).activate();
       await ctx.sync();
