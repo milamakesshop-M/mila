@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>@font-face{font-family:'Nunito';font-style:normal;font-weight:400;font-display:swap;src:url(assets/fonts/nunito-latin-400-normal.woff2) format('woff2')}@font-face{font-family:'Nunito';font-style:normal;font-weight:600;font-display:swap;src:url(assets/fonts/nunito-latin-600-normal.woff2) format('woff2')}@font-face{font-family:'Nunito';font-style:normal;font-weight:700;font-display:swap;src:url(assets/fonts/nunito-latin-700-normal.woff2) format('woff2')}@font-face{font-family:'Nunito';font-style:normal;font-weight:800;font-display:swap;src:url(assets/fonts/nunito-latin-800-normal.woff2) format('woff2')}@font-face{font-family:'Dancing Script';font-style:normal;font-weight:600;font-display:swap;src:url(assets/fonts/dancing-script-latin-600-normal.woff2) format('woff2')}</style>
+<style>
+  :root { --bg:#FFF7F4; --card:#FFFFFF; --card2:#FFF0F4; --ink:#4A2C2A; --muted:#9C7B7A; --rose:#E46A8E; --deep:#B83E63;
+          --line:#F2D4DD; --input:#E8F1FB; --inputInk:#2E4A6B; --btn:#FDE1EA; --btnInk:#B83E63; --mint:#5DB08A; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 'Nunito', Arial, sans-serif; }
+  .wrap { display: flex; flex-direction: column; height: 100vh; }
+  header { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px; background: var(--card2); border-bottom: 1px solid var(--line); }
+  header img { width: 46px; height: 46px; border-radius: 50%; border: 2px solid var(--rose); background: var(--card); }
+  header .name { font: 600 26px/1 'Dancing Script', cursive; color: var(--deep); }
+  header .sub { font-size: 11px; color: var(--muted); }
+  #where { margin-left: auto; font-size: 10px; font-weight: 800; color: var(--btnInk); background: var(--btn); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+  #chat { flex: 1; overflow-y: auto; padding: 12px; }
+  .msg { display: flex; margin: 0 0 10px; }
+  .msg.me { justify-content: flex-end; }
+  .bubble { max-width: 88%; padding: 9px 12px; border-radius: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.04); word-wrap: break-word; }
+  .mila .bubble { background: var(--card); border: 1px solid var(--line); border-top-left-radius: 4px; }
+  .me .bubble { background: var(--input); color: var(--inputInk); border-top-right-radius: 4px; font-weight: 600; }
+  .bubble i { color: var(--deep); font-style: normal; font-weight: 700; }
+  .bubble .note { color: var(--muted); font-size: 11.5px; }
+  .bubble .note i { color: var(--muted); }
+  .bubble .lbl { display: inline-block; font-size: 10.5px; font-weight: 800; color: var(--mint); text-transform: uppercase; letter-spacing: .04em; }
+  .typing .bubble { color: var(--muted); font-style: italic; }
+  #chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 4px; border-top: 1px solid var(--line); background: var(--card2); }
+  .chip { border: 1px solid var(--line); background: var(--btn); color: var(--btnInk); border-radius: 999px; padding: 4px 10px; font: 700 11.5px 'Nunito', Arial; cursor: pointer; }
+  .chip:hover { border-color: var(--rose); }
+  form { display: flex; gap: 8px; padding: 8px 12px 12px; background: var(--card2); }
+  textarea { flex: 1; resize: none; height: 42px; border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; font: 600 13px 'Nunito', Arial; color: var(--inputInk); background: var(--card); outline: none; }
+  textarea:focus { border-color: var(--rose); }
+  button.send { width: 42px; border: 0; border-radius: 12px; background: var(--rose); color: #fff; font-size: 18px; cursor: pointer; }
+  footer { font-size: 10px; color: var(--muted); text-align: center; padding: 0 12px 8px; background: var(--card2); }
+  footer a { color: var(--btnInk); font-weight: 800; text-decoration: none; }
+  #page { margin-left: auto; font: 800 12px 'Nunito', Arial; color: var(--btnInk); background: var(--btn); border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; max-width: 46%; }
+  /* the phone page: bigger and easier to tap */
+  body.app { font-size: 15px; }
+  body.app .wrap { height: 100vh; height: 100dvh; max-width: 680px; margin: 0 auto; }
+  body.app header { padding-top: max(12px, env(safe-area-inset-top)); }
+  body.app .chip { font-size: 13px; padding: 7px 12px; }
+  body.app textarea { font-size: 16px; height: 46px; }
+  body.app button.send { width: 48px; }
+  body.app form { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img id="face" alt="Mila">
+    <div><div class="name">Mila</div><div class="sub">your money assistant</div></div>
+    <div id="where">…</div>
+  </header>
+  <div id="chat"></div>
+  <div id="chips"></div>
+  <form id="f" autocomplete="off">
+    <textarea id="t" placeholder="Type anything…"></textarea>
+    <button class="send" type="submit" title="Send">➤</button>
+  </form>
+  <footer>Everything stays in this workbook. No AI, no accounts. 🦋</footer>
+</div>
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<script src="mila-code.js"></script>
+<script src="bridge.js"></script>
+<script src="excel-pane.js"></script>
+<script>
+window.milaStartPanel = function () {
+  var DATA = window.MILA_PANEL_DATA;
+  (function theme() {
+    var p = DATA.palette, r = document.documentElement.style;
+    var map = { '--bg': p.bg, '--card': p.card, '--card2': p.card2, '--ink': p.ink, '--muted': p.muted, '--rose': p.rose, '--deep': p.rose_deep,
+                '--line': p.line, '--input': p.input, '--inputInk': p.input_ink, '--btn': p.btn, '--btnInk': p.btn_ink, '--mint': p.mint };
+    for (var k in map) if (map[k]) r.setProperty(k, '#' + map[k]);
+    document.getElementById('face').src = 'data:image/png;base64,' + DATA.avatar;
+  })();
+  var chat = document.getElementById('chat'), box = document.getElementById('t'), chipsEl = document.getElementById('chips');
+  var APP = !!DATA.app, page = DATA.page || 'Dashboard';
+  if (APP) {
+    // on the phone page there is no "open tab", so you pick the page Mila should work on
+    document.body.className = 'app';
+    var sel = document.createElement('select'); sel.id = 'page';
+    (DATA.tabs || []).forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = '📍 ' + n; sel.appendChild(o); });
+    sel.value = page;
+    sel.onchange = function () { page = sel.value; google.script.run.withSuccessHandler(function (r) { chips(r.chips); }).milaPage(page); };
+    var w = document.getElementById('where'); w.parentNode.replaceChild(sel, w);
+    if (DATA.url) document.querySelector('footer').innerHTML = '<a href="' + DATA.url + '" target="_blank">📊 Open my planner ↗</a> · Everything stays in your spreadsheet. No AI. 🦋';
+  }
+  function add(who, html) {
+    var m = document.createElement('div'); m.className = 'msg ' + who;
+    var b = document.createElement('div'); b.className = 'bubble';
+    if (who === 'me') b.textContent = html; else b.innerHTML = html;
+    m.appendChild(b); chat.appendChild(m); chat.scrollTop = chat.scrollHeight; return m;
+  }
+  function chips(list) {
+    chipsEl.innerHTML = '';
+    (list || []).forEach(function (c) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = c;
+      b.onclick = function () { send(c); }; chipsEl.appendChild(b);
+    });
+  }
+  function where(s) {
+    if (!s) return;
+    if (APP) { page = s; var sl = document.getElementById('page'); if (sl) sl.value = s; return; }
+    document.getElementById('where').textContent = '📍 ' + s;
+  }
+  var busy = false;
+  function send(text) {
+    text = String(text || '').trim();
+    if (!text || busy) return;
+    busy = true; add('me', text); box.value = '';
+    var wait = add('mila typing', 'Mila is on it…');
+    google.script.run.withSuccessHandler(function (r) {
+      busy = false; wait.remove(); add('mila', r.reply); chips(r.chips); where(r.sheet);
+    }).withFailureHandler(function (e) {
+      busy = false; wait.remove(); add('mila', 'Sorry, I couldn’t do that: ' + (e && e.message ? e.message : e));
+    }).milaChat(text, APP ? page : null);
+  }
+  document.getElementById('f').onsubmit = function (e) { e.preventDefault(); send(box.value); };
+  box.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(box.value); } });
+  // keep the "you are on" badge fresh when you switch tabs
+  function refreshWhere() { if (!busy && !APP) google.script.run.withSuccessHandler(function (r) { where(r.sheet); }).milaWhere(); }
+  if (!APP) {
+    box.addEventListener('focus', refreshWhere);
+    setInterval(function () { if (document.hasFocus()) refreshWhere(); }, 5000);
+  }
+  function hello() {
+    window.milaHelloAt = Date.now();
+    google.script.run.withSuccessHandler(function (r) { add('mila', r.reply); chips(r.chips); where(r.sheet); })
+      .withFailureHandler(function (e) { add('mila', 'I couldn’t open your planner: ' + (e && e.message ? e.message : e)); }).milaHello(APP ? page : null);
+  }
+  window.milaSayHello = hello;
+  hello();
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>6f1d3c2a-7b8e-4c59-9a41-3e2b8d5f0a17</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Mila</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Mila Budget Planner"/>
+  <Description DefaultValue="Mila, the money assistant inside the Budget Planner with Mila. Tell her what you spent, ask anything, and she updates your planner. No AI, no account: everything stays in your workbook."/>
+  <IconUrl DefaultValue="https://milamakesshop-m.github.io/mila/assets/mila-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://milamakesshop-m.github.io/mila/assets/mila-64.png"/>
+  <SupportUrl DefaultValue="https://milamakesshop-m.github.io/mila/support.html"/>
+  <AppDomains>
+    <AppDomain>https://milamakesshop-m.github.io</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Workbook"/>
+  </Hosts>
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="ExcelApi" MinVersion="1.7"/>
+      <Set Name="SharedRuntime" MinVersion="1.1"/>
+    </Sets>
+  </Requirements>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://milamakesshop-m.github.io/mila/taskpane.html"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Workbook">
+        <Runtimes>
+          <Runtime resid="Mila.Pane" lifetime="long"/>
+        </Runtimes>
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="Mila.Title"/>
+            <Description resid="Mila.Desc"/>
+            <LearnMoreUrl resid="Mila.Url"/>
+          </GetStarted>
+          <FunctionFile resid="Mila.Pane"/>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="Mila.Group">
+                <Label resid="Mila.Title"/>
+                <Icon>
+                  <bt:Image size="16" resid="Mila.Icon16"/>
+                  <bt:Image size="32" resid="Mila.Icon32"/>
+                  <bt:Image size="80" resid="Mila.Icon80"/>
+                </Icon>
+                <Control xsi:type="Button" id="Mila.Open">
+                  <Label resid="Mila.Button"/>
+                  <Supertip>
+                    <Title resid="Mila.Button"/>
+                    <Description resid="Mila.Desc"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Mila.Icon16"/>
+                    <bt:Image size="32" resid="Mila.Icon32"/>
+                    <bt:Image size="80" resid="Mila.Icon80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <SourceLocation resid="Mila.Pane"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Mila.Icon16" DefaultValue="https://milamakesshop-m.github.io/mila/assets/mila-16.png"/>
+        <bt:Image id="Mila.Icon32" DefaultValue="https://milamakesshop-m.github.io/mila/assets/mila-32.png"/>
+        <bt:Image id="Mila.Icon80" DefaultValue="https://milamakesshop-m.github.io/mila/assets/mila-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Mila.Pane" DefaultValue="https://milamakesshop-m.github.io/mila/taskpane.html"/>
+        <bt:Url id="Mila.Url" DefaultValue="https://milamakesshop-m.github.io/mila/support.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="Mila.Title" DefaultValue="Mila"/>
+        <bt:String id="Mila.Button" DefaultValue="Talk to Mila"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="Mila.Desc" DefaultValue="Open Mila: tell her what you spent, ask anything about your money, and she updates your planner."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
